@@ -1,0 +1,33 @@
+# --- Python ---
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- 数据与日志：运行时用挂载卷提供，不进镜像 ---
+data/
+backups/
+tests/_tmp_testdata/
+*.db
+*.db.bak-*
+*.db-journal
+*.db-wal
+*.db-shm
+*.log
+
+# --- 密钥与本地配置：只提交 .env.example ---
+.env
+
+# --- 版本控制与编辑器 ---
+.git/
+.gitignore
+.github/
+.idea/
+.vscode/
+
+# --- 文档（镜像里不需要）---
+*.md
+docs/

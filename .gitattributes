@@ -1,0 +1,17 @@
+# shell 脚本必须保持 LF —— CRLF 会让 Linux 上的 sh 报 `bad interpreter`
+*.sh text eol=lf
+
+# Docker 相关同理
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+
+# YAML 由 CI 的 Linux runner 解析
+*.yml text eol=lf
+
+# Python / Markdown / HTML 用仓库内一致的行尾即可
+*.py text eol=lf
+*.md text eol=lf
+*.html text eol=lf
+
+# 二进制不做行尾转换
+*.png binary

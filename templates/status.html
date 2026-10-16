@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>服务状态 · RMB03 SRE 监控平台</title>
+    <!--
+      状态页免登录（任务单要求）。
+      图表用 Chart.js CDN —— 按任务单「不引前端框架、不建构建链」，
+      只引一个单文件库，不写打包流程。
+    -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --ok: #16a34a;
+            --down: #dc2626;
+            --idle: #9ca3af;
+            --border: #e5e7eb;
+            --muted: #6b7280;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+            margin: 0;
+            background: #f9fafb;
+            color: #111827;
+        }
+        .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 20px; }
+        header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+        h1 { font-size: 24px; margin: 0; }
+        .sub { color: var(--muted); font-size: 14px; }
+        .banner {
+            margin: 24px 0;
+            padding: 20px;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: 600;
+            color: #fff;
+            text-align: center;
+        }
+        .banner.ok { background: var(--ok); }
+        .banner.down { background: var(--down); }
+        .card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .card h2 { font-size: 16px; margin: 0 0 16px; color: #374151; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+        th { color: var(--muted); font-weight: 500; }
+        .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; }
+        .dot.up { background: var(--ok); }
+        .dot.down { background: var(--down); }
+        .dot.idle { background: var(--idle); }
+        .mono { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+        .empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
+        footer { color: var(--muted); font-size: 13px; text-align: center; margin-top: 28px; }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <header>
+        <h1>服务状态</h1>
+        <span class="sub">统计窗口：最近 {{ window_days }} 天</span>
+    </header>
+
+    <div class="banner {{ 'ok' if overall_availability >= 99 else 'down' }}">
+        {% if overall_availability >= 99 %}
+            全部系统运行正常 · 综合可用率 {{ '%.2f' % overall_availability }}%
+        {% else %}
+            部分服务异常 · 综合可用率 {{ '%.2f' % overall_availability }}%
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2>当前状态</h2>
+        {% if targets %}
+        <table>
+            <thead>
+            <tr><th>服务</th><th>状态</th><th>最近响应码</th><th>最近巡检</th><th>最近错误</th></tr>
+            </thead>
+            <tbody>
+            {% for t in targets %}
+            <tr>
+                <td>{{ t.name }}</td>
+                <td>
+                    <span class="dot {{ 'up' if t.operational else ('idle' if not t.last_checked_at else 'down') }}"></span>
+                    {% if not t.enabled %}已停用
+                    {% elif not t.last_checked_at %}尚未巡检
+                    {% elif t.operational %}运行中
+                    {% else %}异常{% endif %}
+                </td>
+                <td class="mono">{{ t.last_status_code if t.last_status_code is not none else '-' }}</td>
+                <td class="mono">{{ t.last_checked_at or '-' }}</td>
+                <td class="mono">{{ (t.last_error or '-')[:80] }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty">尚未配置监控目标。</div>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2>每日可用率</h2>
+        {% if daily %}
+        <canvas id="chart" height="110"></canvas>
+        {% else %}
+        <div class="empty">窗口内暂无巡检数据。</div>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2>近期告警</h2>
+        {% if recent_alerts %}
+        <table>
+            <thead>
+            <tr><th>时间</th><th>内容</th><th>分类</th></tr>
+            </thead>
+            <tbody>
+            {% for a in recent_alerts %}
+            <tr>
+                <td class="mono">{{ a.triggered_at }}</td>
+                <td>{{ a.message }}</td>
+                <td class="mono">{{ a.reason or '-' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty">近期没有告警。</div>
+        {% endif %}
+    </div>
+
+    <footer>RMB03 · SRE 可观测性监控平台 · 状态页无需登录</footer>
+</div>
+
+{% if daily %}
+<script>
+    const labels = {{ daily | map(attribute='date') | list | tojson }};
+    const values = {{ daily | map(attribute='availability') | list | tojson }};
+    new Chart(document.getElementById('chart'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '可用率 %',
+                data: values,
+                backgroundColor: values.map(v => v >= 99 ? '#16a34a' : '#dc2626'),
+                borderRadius: 3,
+            }]
+        },
+        options: {
+            scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } },
+            plugins: { legend: { display: false } },
+        }
+    });
+</script>
+{% endif %}
+</body>
+</html>

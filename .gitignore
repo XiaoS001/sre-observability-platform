@@ -1,0 +1,22 @@
+# 数据目录：数据库、Prometheus/Grafana/Loki 的落盘数据都不进版本库
+data/
+backups/
+tests/_tmp_testdata/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 本地配置与密钥：只提交 .env.example，真实 .env 永不提交
+.env
+
+# 日志
+*.log
+
+# 编辑器
+.idea/
+.vscode/

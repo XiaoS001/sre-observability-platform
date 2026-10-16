@@ -1,0 +1,95 @@
+# RMB03 · SRE 可观测性监控平台 —— 一条命令起全套
+#
+#   docker compose up -d
+#
+# 服务：rmb03(应用) + prometheus + grafana + loki
+#
+# 🔴 本文件的正确性**由 GitHub Actions 验证**（见 .github/workflows/ci.yml）。
+# 开发机没有 Docker 环境（WSL 被安全策略禁用），本机无法运行 docker compose。
+#
+# 🔴 调度器约束：rmb03 服务刻意用 --workers 1（entrypoint.sh 强制）。
+#    原因与生产化路径见 README「部署约束：调度器与 worker 数」。
+
+services:
+  rmb03:
+    build: .
+    image: rmb03:latest
+    container_name: rmb03
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      TZ: Asia/Shanghai
+      # 调度器默认关闭：演示环境不开后台巡检，避免污染演示数据
+      RMB03_SCHEDULER_ENABLED: "${RMB03_SCHEDULER_ENABLED:-false}"
+      # ⚠️ 防呆断言：调度器开启时这个值必须为 1，否则 entrypoint.sh 拒绝启动
+      GUNICORN_WORKERS: "1"
+      # 三支柱（容器内走服务名，不是 localhost）
+      RMB03_LOKI_URL: "http://loki:3100"
+      # 🔴 Jaeger 不在本编排内（任务单边界：本单不含额外组件）。
+      #    留空即不启用 OTel 导出，平台照常启动。
+      #    要接链路时填自己的 Jaeger OTLP 地址即可。
+      RMB03_OTLP_ENDPOINT: "${RMB03_OTLP_ENDPOINT:-}"
+      # 数据库落在挂载卷里，容器重建不丢数据
+      RMB03_DATABASE_URL: "sqlite:////app/data/rmb03.db"
+      # 密钥从 .env 注入，不写在这里
+      RMB03_SECRET_KEY: "${RMB03_SECRET_KEY:-}"
+      RMB03_PASSWORD_SALT: "${RMB03_PASSWORD_SALT:-}"
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+    volumes:
+      # data/ 与 backups/ 已在 .dockerignore 中排除 → 运行时挂载提供
+      - rmb03-data:/app/data
+      - rmb03-backups:/app/backups
+    depends_on:
+      loki:
+        condition: service_started
+
+  prometheus:
+    image: prom/prometheus:v3.13.3
+    container_name: rmb03-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - rmb03
+
+  loki:
+    image: grafana/loki:3.5.1
+    container_name: rmb03-loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/loki-config.yaml
+    volumes:
+      - ./deploy/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki-data:/loki
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    container_name: rmb03-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+
+volumes:
+  rmb03-data:
+  rmb03-backups:
+  prometheus-data:
+  loki-data:
+  grafana-data:

@@ -1,0 +1,21 @@
+# Prometheus 抓取配置（RMB03）
+#
+# 与 D:\CodexXM\_tools\prometheus\prometheus.yml 的差异：
+#   原配置只抓 prometheus 自己；这里加上 rmb03 应用本体。
+#   用容器服务名 rmb03:5000 而非 localhost —— 容器间走 compose 网络。
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: "rmb03"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["rmb03:5000"]
+        labels:
+          app: "rmb03"
