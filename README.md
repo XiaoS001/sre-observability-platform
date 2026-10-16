@@ -1,7 +1,7 @@
 # SRE 可观测性监控平台
 
 > 面向中小团队的一体化监控平台：**多目标巡检 → 定时调度 → 告警 → 通知 → 状态页 → 报表**，
-> 对接 Prometheus / Grafana / Loki / Jaeger 四件套，并提供带证据引用的 AI 根因分析。
+> 对接 Prometheus / Grafana / Loki / Jaeger 四件套。AI 根因分析为规划中能力（见第九节）。
 > Docker 化 + GitHub Actions CI，一条命令起全套。
 
 ---
@@ -40,7 +40,7 @@
                     ↓
               状态页（对外）+ 报表（对内）
                     ↓
-              AI 根因分析（为什么）
+         （规划中）AI 根因分析（为什么）
 ```
 
 ---
@@ -63,11 +63,11 @@
 │  └─────┬─────┘  └────┬─────┘  └────┬─────┘  └──────────────┘   │
 │        └──────────────┴─────────────┘                            │
 │                    │                                            │
-│         ┌──────────▼───────────┐   ┌────────────┐               │
-│         │ reports（CSV 导出） │   │   aiops    │               │
-│         └─────────────────────┘   │ LangGraph  │               │
-└───────────────────────────────────┤ + 5 工具    │               │
-                                    │   白名单    │               │
+│         ┌──────────▼───────────┐                              │
+│         │ reports（CSV 导出） │                              │
+│         └─────────────────────┘                              │
+│                    │                                          │
+│                    └──▶（规划中）aiops/：AI 根因分析，未接入    │
 ┌───────────────────────────────────▼─────────────┴───────────────┐
 │                       数据层                                     │
 │  SQLite（可换 PostgreSQL）· 7 张表 · 演示数据可一键生成           │
@@ -314,7 +314,7 @@ curl http://127.0.0.1:5000/metrics | grep rmb03_probe_success
 |---|---|
 | **运维 / SRE** | 多目标巡检 · 四分类失败诊断 · Prometheus/Grafana/Loki/Jaeger 四件套 · Docker 多层构建 · GitHub Actions CI · 部署约束设计（单 worker 的取舍） |
 | **技术支持** | 状态页 · 报表导出 · 文档齐全（API/数据库/告警/商业模式四份）· 降级设计（通知失败不炸主流程） |
-| **AI 应用 / AI 测试** | AI 根因分析（结论带证据引用）· 无 key 时自动退回规则路径 · 全流程 mock 测试 · **变异测试驱动的边界测试** |
+| **AI 应用 / AI 测试** | **变异测试驱动的边界测试**（9 个变异抓到 8 个，漏的那个已修）· 冷却期毫秒级双向夹逼 · 全流程 mock（167 条 pytest 零外部调用）· AI 根因分析见第九节「规划中」 |
 
 ### 面试可讲的技术决策
 
@@ -356,6 +356,7 @@ curl http://127.0.0.1:5000/metrics | grep rmb03_probe_success
 | 🔴 **容器运行** | 同上 | `docker compose up` |
 | 🔴 **compose 四服务联通** | 同上 | CI 或有 Docker 的机器 |
 | 🔴 **entrypoint.sh 真跑** | 本机无 POSIX shell（`sh` 不存在） | CI ubuntu runner |
+| 🔴 **AI 根因分析** | **未实现** —— `aiops/` 仅建了 `__init__.py` 占位，无代码、无依赖、无测试 | 待阶段 6 决定是否接入 |
 | **GHCR 推送后拉取** | 代码尚未推送仓库 | CI 日志 |
 | **Grafana 看板渲染** | 需要容器 | 浏览器 |
 
@@ -408,7 +409,7 @@ curl http://127.0.0.1:5000/metrics | grep rmb03_probe_success
 | `XM01\metrics.py` | 自定义 Collector（scrape 时从库派生） | 表名 + 指标前缀 |
 | `XM01\logging_setup.py` | 手写 LokiHandler（守护线程 + 批量缓冲 + 失败静默降级） | 环境变量前缀 |
 | `XM01\tracing_setup.py` | OTel 埋点 + 两层容错 | 标识符名 |
-| `XM05\aiops\` | LangGraph Supervisor + 5 工具白名单 | 接入 `aiops/` |
+| `XM05\aiops\` | LangGraph Supervisor + 5 工具白名单 | 🔴 **未接入** —— 仅建了 `aiops/__init__.py` 占位 |
 
 > **数据不复制**：本项目用自己的 `data/rmb03.db`，
 > 绝不复制也绝不写入 XM01 的 `app.db`。

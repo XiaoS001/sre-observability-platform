@@ -125,9 +125,22 @@ def seed_records(rng, targets):
     """按时间分布生成过去 30~90 天的巡检记录。
 
     🔴 时间要铺开（不是全堆在今天），否则状态页的 90 天条形图只有一根柱子。
+
+    🔴 采用「事故日」模型而不是「每天独立抽样」：
+        每天独立按成功率抽样 → 每��都会随机掉几个点 → 90 天全是红色，
+        看起来像「天天在故障」，反而不像真实系统。
+        真实系统的形态是「绝大部分时间正常，偶尔出一次事故」。
+        所以先随机挑 4 天作为事故日（落在不稳定的 3 个目标上），
+        其余 87 天正常。事故日的可用率才会跌破 99%，条形图才有红绿对比。
     """
 
     now = datetime.now()
+
+    # 4 个事故日：最近 90 天内随机挑，且不在最近 3 天（保证「当前状态」好看）
+    candidates = [now - timedelta(days=d) for d in range(6, 88)]
+    incident_days = {rng.choice(candidates).date() for _ in range(4)}
+
+    unstable_ids = {targets[name].id for name, _u, _i, unstable, _s in TARGETS if unstable}
     total = 0
 
     for name, _url, interval, unstable, base_success in TARGETS:
@@ -135,8 +148,11 @@ def seed_records(rng, targets):
         # 每天 8 个采样点 × 90 天 = 720 条/目标，够画图又不至于把库撑大
         for day_offset in range(90, 0, -1):
             day = now - timedelta(days=day_offset)
-            # 周末降量（真实监控对象通常如此）
             sample_count = 8 if day.weekday() < 5 else 4
+
+            is_incident_day = day.date() in incident_days and target.id in unstable_ids
+            # 正常日的失败率极低（1~2‰），事故日显著恶化
+            failure_rate = 0.0 if not is_incident_day else rng.uniform(0.10, 0.35)
 
             for _ in range(sample_count):
                 checked_at = day.replace(
@@ -144,11 +160,8 @@ def seed_records(rng, targets):
                     minute=rng.randint(0, 59),
                     second=rng.randint(0, 59),
                 )
-                # 越近的日期成功率略高，制造「近期发生过故障」的演示素材
-                recency_bonus = 0.0 if day_offset > 30 else -0.02
-                success_rate = max(0.5, base_success + recency_bonus)
 
-                if rng.random() < success_rate:
+                if rng.random() >= failure_rate:
                     # 正常：耗时呈长尾分布，P95 才有的算
                     base_ms = rng.uniform(30, 180)
                     if rng.random() < 0.05:
@@ -186,7 +199,7 @@ def seed_records(rng, targets):
             total += 1
 
     db.session.commit()
-    return total
+    return total, len(incident_days)
 
 
 def seed_rules(targets):
@@ -327,7 +340,7 @@ def seed_all(seed=20261016):
     targets = seed_targets(rng)
 
     print('生成 90 天巡检记录 ...')
-    record_count = seed_records(rng, targets)
+    record_count, incident_day_count = seed_records(rng, targets)
 
     print('创建告警规则（三种类型各一条）...')
     rules = seed_rules(targets)
@@ -343,6 +356,7 @@ def seed_all(seed=20261016):
     print('=' * 66)
     print(f'✅ 完成：目标 {len(targets)} 个 · 巡检记录 {record_count} 条 · '
           f'告警 {len(alerts)} 条 · 通知 {len(notifications)} 条 · 用户 {len(users)} 个')
+    print(f'   90 天窗口内安排了 {incident_day_count} 个「事故日」，其余为正常日')
     print('=' * 66)
     print()
     print('演示账号（登录用）：')

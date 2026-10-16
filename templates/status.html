@@ -6,10 +6,11 @@
     <title>服务状态 · RMB03 SRE 监控平台</title>
     <!--
       状态页免登录（任务单要求）。
-      图表用 Chart.js CDN —— 按任务单「不引前端框架、不建构建链」，
-      只引一个单文件库，不写打包流程。
+      图表用 Chart.js —— 按任务单「不引前端框架、不建构建链」，只引一个单文件库。
+      🔴 本地引用而非 CDN：内网/离线环境下 CDN 拉不到，图表会静默变成空白，
+         而空白图表会被误读成「没有数据」。所以额外加了加载失败兜底提示。
     -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
     <style>
         :root {
             --ok: #16a34a;
@@ -109,6 +110,12 @@
         <h2>每日可用率</h2>
         {% if daily %}
         <canvas id="chart" height="110"></canvas>
+        <div id="chart-fallback" class="empty" hidden>
+            ⚠️ 图表库未能加载，以下为原始数据（{{ daily | length }} 天）：
+            <div class="mono" style="margin-top:10px;max-height:220px;overflow:auto">
+            {% for d in daily %}{{ d.date }} → {{ d.availability }}%<br>{% endfor %}
+            </div>
+        </div>
         {% else %}
         <div class="empty">窗口内暂无巡检数据。</div>
         {% endif %}
@@ -143,23 +150,31 @@
 <script>
     const labels = {{ daily | map(attribute='date') | list | tojson }};
     const values = {{ daily | map(attribute='availability') | list | tojson }};
-    new Chart(document.getElementById('chart'), {
-        type: 'bar',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: '可用率 %',
-                data: values,
-                backgroundColor: values.map(v => v >= 99 ? '#16a34a' : '#dc2626'),
-                borderRadius: 3,
-            }]
-        },
-        options: {
-            scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } },
-            plugins: { legend: { display: false } },
-        }
-    });
+
+    // 🔴 兜底：图表库加载失败时给出可读提示，而不是留一块空白画布。
+    // 空白画布会被误读成「没有数据」，而真实情况是「画不出来」—— 两者必须区分。
+    const canvas = document.getElementById('chart');
+    const fallback = document.getElementById('chart-fallback');
+    if (typeof Chart === 'undefined') {
+        canvas.hidden = true;
+        fallback.hidden = false;
+    } else {
+        new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '可用率 %',
+                    data: values,
+                    backgroundColor: values.map(v => v >= 99 ? '#16a34a' : '#dc2626'),
+                    borderRadius: 3,
+                }]
+            },
+            options: {
+                scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } },
+                plugins: { legend: { display: false } },
+            }
+        });
+    }
 </script>
 {% endif %}
-</body>
-</html>
