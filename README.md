@@ -365,13 +365,13 @@ curl http://127.0.0.1:5000/metrics | grep rmb03_probe_success
 | 19 个只读文件 | sha256 逐个比对 | 全部一致（XM01/XM05 零改动） |
 | **AI 根因分析** | `verify_degradation.py` + 28 条测试 | **已实现**。五层降级全部实测有可读输出（见第十二节） |
 | **模型主路径** | `pytest tests -m live`（AMD端点 / DeepSeek-V4-Flash） | ✅ **2026-10-17 实测通过**，引用校验全过 · 详见 `docs/AI实测记录.md` |
+| **容器运行态** | CI `smoke-run` job 真跑容器 | ✅ **healthz 通 · 非 root（appuser/uid=1001）· 工具可查库 · 未登录 401** · 详见 `docs/容器冒烟验证.md` |
 
 ### ❌ 未验证（需 CI 或有 Docker 环境的人验）
 
 | 项 | 原因 | 在哪验 |
 |---|---|---|
-| **容器实际运行** | CI 新增 `smoke-run` job，真跑容器验 `/healthz` + 非 root + 401 语义 | 见 Actions `smoke-run` |
-| 🔴 **compose 四服务联通** | 同上 | 有 Docker 的机器 |
+| 🔴 **compose 四服务联通** | 要拉 ~1GB 镜像（Prometheus/Grafana/Loki），慢且与主流程无关，刻意不放进 CI | 有 Docker 的机器执行 `docker compose up` |
 | 🔴 **GHCR 镜像拉取** | 本机无 Docker；当前 PAT 缺 `read:packages` scope，无法用 API 核验 registry 内容 | 有 Docker 的机器执行 `docker pull ghcr.io/xiaos001/sre-observability-platform:latest` |
 | **Grafana 看板渲染** | 需要容器 | 浏览器 |
 
@@ -381,9 +381,10 @@ curl http://127.0.0.1:5000/metrics | grep rmb03_probe_success
 
 | 项 | 结果 |
 |---|---|
-| Actions 运行 | [runs/39013102795](https://github.com/XiaoS001/sre-observability-platform/actions/runs/39013102795) |
+| Actions 运行 | [runs/39015038437](https://github.com/XiaoS001/sre-observability-platform/actions/runs/39015038437) |
 | `pytest` job | **success** —— 253 passed / 1 skipped |
 | `docker-build` job | **success** —— 镜像构建并推送 GHCR |
+| `smoke-run` job | **success** —— 容器真跑起来，验证 healthz / 非 root / 挂载卷 / 401 语义 |
 | 镜像地址 | `ghcr.io/xiaos001/sre-observability-platform:latest` |
 
 #### 三次真实失败与修复（如实记录，不藏）
