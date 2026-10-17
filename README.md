@@ -381,20 +381,33 @@ curl http://127.0.0.1:5000/metrics | grep rmb03_probe_success
 
 | 项 | 结果 |
 |---|---|
-| Actions 运行 | [runs/39004265225](https://github.com/XiaoS001/sre-observability-platform/actions/runs/39004265225) |
-| `pytest` job | **success** —— 167 条全绿 |
+| Actions 运行 | [runs/39013102795](https://github.com/XiaoS001/sre-observability-platform/actions/runs/39013102795) |
+| `pytest` job | **success** —— 253 passed / 1 skipped |
 | `docker-build` job | **success** —— 镜像构建并推送 GHCR |
 | 镜像地址 | `ghcr.io/xiaos001/sre-observability-platform:latest` |
 
-> ⚠️ **首次 CI 曾失败并已修复**，如实记录：
-> 第一次运行时 `pytest` 通过、`docker-build` 失败于
-> `invalid tag: repository name must be lowercase`
-> —— 因为 `github.repository` 带上了大写的用户名。
-> 已加一步用 `tr` 转小写后修复（[首次运行记录](https://github.com/XiaoS001/sre-observability-platform/actions/runs/39004124606)）。
+#### 三次真实失败与修复（如实记录，不藏）
+
+| # | 运行 | 失败原因 | 修法 |
+|---|---|---|---|
+| 1 | [39004124606](https://github.com/XiaoS001/sre-observability-platform/actions/runs/39004124606) | `invalid tag: repository name must be lowercase` —— `github.repository` 带大写用户名 | 加一步 `tr` 转小写写入 `GITHUB_ENV` |
+| 2 | [39012811003](https://github.com/XiaoS001/sre-observability-platform/actions/runs/39012811003) | `test_real_analysis_produces_valid_citations` 失败 —— AI 工具**连错数据库** | 库路径改为**运行时解析**，不再在 import 期固化 |
+
+> **第 2 条值得展开** —— 本地 253 passed 但 CI 1 failed，而它暴露的是一个真 bug：
 >
+> `db_access.DB_PATH` 原本在**模块导入期**从 `config.DATA_DIR` 固化成常量，
+> 而 conftest 是在**模块级**改 `RMB03_DATABASE_URL` 做测试隔离。
+> aiops 在测试执行期才 import，那时 config 早已缓存 ——
+> 于是 AI 取证工具连的是**真实业务库**而不是测试库。
+>
+> 本机没暴露，是因为 `data/rmb03.db` 里有演示数据（查得到那条记录 → 引用校验通过）；
+> CI 是干净 checkout，查了个空库 → 证据里没有它 → 引用校验判定「模型编造」→ 红灯。
+>
+> **教训：导入期固化的路径是测试隔离的隐形漏洞，本机有数据会掩盖它。**
+> 修完后专门做了「模拟 CI 干净 checkout」的双环境验证（两种环境都 253 passed）。
+
 > 🔴 **CI 只构建镜像，不运行容器。** 运行态（`docker compose up`、
 > 四服务联通、Grafana 看板渲染）**仍未验证**，见上表。
-
 ### 关于 Grafana 看板
 
 本项目提供了数据源自动 provisioning，但**未提供预置看板 JSON**，
