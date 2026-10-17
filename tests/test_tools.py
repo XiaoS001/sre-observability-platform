@@ -3,7 +3,7 @@
 按审查意见要求的四组：
   · 6 个工具各一条正例
   · 参数校验反例
-  · db_error（monkeypatch DB_PATH，**不真删库**）
+  · db_error（monkeypatch _DB_PATH_OVERRIDE，**不真删库**）
   · unknown_tool
 
 🔴 测试不碰 data/rmb03.db —— 用tmp 库里造的最小数据，
@@ -20,9 +20,9 @@ from aiops.tools import call_tool
 # ============ fixture：只读的最小测试库 ============
 @pytest.fixture()
 def sample_db(tmp_path, monkeypatch):
-    """造一个只含必要表的库，DB_PATH 指过去。
+    """造一个只含必要表的库，让 db_path() 指向它。
 
-    用 monkeypatch 改 DB_PATH，不动真实 data/rmb03.db。
+    用 monkeypatch 设 _DB_PATH_OVERRIDE，不动真实 data/rmb03.db。
     """
 
     import sqlite3
@@ -71,7 +71,7 @@ def sample_db(tmp_path, monkeypatch):
     conn.commit()
     conn.close()
 
-    monkeypatch.setattr(db_access, "DB_PATH", path)
+    monkeypatch.setattr(db_access, "_DB_PATH_OVERRIDE", path)
     return path
 
 
@@ -207,7 +207,7 @@ def test_db_error_when_database_unavailable(monkeypatch, tmp_path, name, kwargs)
     这条锁的是「接口任何情况不 500」—— 异常冒到 Flask 就是 500。
     """
 
-    monkeypatch.setattr(db_access, "DB_PATH", tmp_path / "does-not-exist.db")
+    monkeypatch.setattr(db_access, "_DB_PATH_OVERRIDE", tmp_path / "does-not-exist.db")
 
     result = call_tool(name, **kwargs)   # 若抛异常，这���测试就 ERROR
 
@@ -218,7 +218,7 @@ def test_db_error_when_database_unavailable(monkeypatch, tmp_path, name, kwargs)
 def test_search_knowledge_survives_missing_db(monkeypatch, tmp_path):
     """知识库不依赖 sqlite —— DB 挂了它也该能用。"""
 
-    monkeypatch.setattr(db_access, "DB_PATH", tmp_path / "nope.db")
+    monkeypatch.setattr(db_access, "_DB_PATH_OVERRIDE", tmp_path / "nope.db")
 
     assert tools.search_knowledge("超时")["ok"] is True
 

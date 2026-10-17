@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import sqlite3
+import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,8 +22,43 @@ from typing import Any, Iterator
 
 import config
 
-DATA_DIR = Path(config.DATA_DIR)
-DB_PATH = DATA_DIR / "rmb03.db"
+# 🔴 库路径**必须在运行时解析**，不能在模块导入时固化。
+#
+# 踩过的坑：这里原来写的是
+#     DB_PATH = Path(config.DATA_DIR) / "rmb03.db"
+# config.DATABASE_URL 是在 import 时读进模块级常量的，而 conftest 为了测试隔离
+# 是在**模块级**设的环境变量 —— 但 aiops 是测试执行期才 import 的，
+# 那时 config 早已缓存，于是工具连上了**真实业务库**而不是测试库。
+# 本机因为 data/rmb03.db 有演示数据而侥幸没暴露，CI 上 data/ 是空的，
+# 工具查了个空库 → 引用校验把答案里的 [1] 判成编造 → CI 红了。
+#
+# 现在改成函数：每次调用都重新读 config，环境变量变了立刻生效。
+_DB_PATH_OVERRIDE: Path | None = None
+
+
+def db_path() -> Path:
+    """当前应该读哪个库。
+
+    优先级：
+      1. 显式覆盖（测试用 monkeypatch.setattr 设 _DB_PATH_OVERRIDE）
+      2. 从 config.DATABASE_URL 解析 —— 而不是 DATA_DIR，
+         因为 DATABASE_URL 才是 conftest 真正在改的那个变量
+    """
+
+    if _DB_PATH_OVERRIDE is not None:
+        return _DB_PATH_OVERRIDE
+
+    url = config.DATABASE_URL
+    # sqlite:///D:/path/to.db 或 sqlite:///D:\path\to.db
+    raw = url.split("sqlite:///", 1)[-1] if url.startswith("sqlite:///") else ""
+    if raw:
+        return Path(raw.replace("/", "\\") if sys.platform == "win32" else raw)
+    return Path(config.DATA_DIR) / "rmb03.db"
+
+
+# 保留这个属性供既有引用使用（tools.py 与测试都在用）。
+# 它是模块级快照，仅用于展示；真正打开库的是 open_ro() 里的 db_path()。
+DB_PATH = db_path()
 
 # 失败四分类：与 RMB03 metrics._classify_failure 同源。
 # ⚠️ 这里保留一份副本而不是 import metrics —— 原因是 aiops 要能独立 import
@@ -61,10 +97,11 @@ def open_ro() -> Iterator[sqlite3.Connection]:
     失败时抛 DbUnavailable —— 调用方负责转成错误对象。
     """
 
+    path = db_path()
     try:
-        conn = sqlite3.connect(f"file:{DB_PATH.as_posix()}?mode=ro", uri=True)
+        conn = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
     except sqlite3.Error as exc:
-        raise DbUnavailable(f"无法只读打开 {DB_PATH.name}: {exc}") from exc
+        raise DbUnavailable(f"无法只读打开 {path.name}: {exc}") from exc
     try:
         yield conn
     except sqlite3.Error as exc:
