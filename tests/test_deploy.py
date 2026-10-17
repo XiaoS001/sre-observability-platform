@@ -42,6 +42,54 @@ def test_entrypoint_is_executable_script():
     assert first_line.startswith('#!'), 'entrypoint.sh 缺少 shebang'
 
 
+def test_dockerfile_marks_entrypoint_executable():
+    """🔴 Dockerfile 必须 chmod +x entrypoint.sh。
+
+    实测踩过：Windows 上 git 不保存可执行位，源码里 entrypoint.sh 是 644，
+    容器直接 ENTRYPOINT 会报
+        exec: "./entrypoint.sh": permission denied
+    这条让 smoke-run job 第一次就红了。
+    """
+
+    content = (ENTRYPOINT.parent / 'Dockerfile').read_text(encoding='utf-8')
+
+    assert 'chmod +x /app/entrypoint.sh' in content, (
+        'Dockerfile 未对 entrypoint.sh chmod +x，容器会因无执行权限而启动失败'
+    )
+
+
+def test_gitattributes_marks_entrypoint_executable():
+    """🔴 .gitattributes 必须声明 mode=100755 —— 另一道保险。
+
+    让 git 仓库本身就带上执行位，避免别人 clone 下来在 Linux 上跑也踩同一个坑。
+    """
+
+    attrs = (ENTRYPOINT.parent / '.gitattributes').read_text(encoding='utf-8')
+
+    assert '/entrypoint.sh' in attrs, '未针对 entrypoint.sh 声明条目'
+    assert 'mode=100755' in attrs, '未声明可执行位 mode=100755'
+
+
+def test_gitattributes_enforces_lf_for_shell():
+    """shell 脚本必须是 LF —— CRLF 会让 Linux 报 bad interpreter。"""
+
+    attrs = (ENTRYPOINT.parent / '.gitattributes').read_text(encoding='utf-8')
+
+    assert '*.sh text eol=lf' in attrs
+
+
+def test_entrypoint_has_lf_line_endings():
+    """🔴 entrypoint.sh 实际文件不能含 CRLF。
+
+    .gitattributes 是 checkout 时规范化的，但构建上下文可能来自其它途径
+    （打包、复制），所以源文件本身就干净更保险。
+    """
+
+    raw = ENTRYPOINT.read_bytes()
+
+    assert b'\r\n' not in raw, 'entrypoint.sh 含 CRLF，Linux 上会报 bad interpreter'
+
+
 def test_entrypoint_condition_matches_python_replica():
     """🔴 防漂移：shell 里的判断条件与 Python 复现必须同时存在。
 

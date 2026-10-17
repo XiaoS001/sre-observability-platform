@@ -21,9 +21,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 非 root 用户运行 —— 容器逃逸时攻击者拿到的不是 root
+# 🔴 chmod +x 必须在这一步做：Windows 上 git 不保存可执行位，
+#    源码里 entrypoint.sh 可能是 644，直接 ENTRYPOINT 会报
+#    "exec: ./entrypoint.sh: permission denied"（实测踩过，smoke-run 第一次就红的）。
+#    这里显式 chmod，构建出的镜像不依赖仓库的文件权限位。
 RUN groupadd --system --gid 1001 appgroup \
  && useradd --system --uid 1001 --gid appgroup --no-create-home appuser \
  && mkdir -p /app/data \
+ && chmod +x /app/entrypoint.sh \
  && chown -R appuser:appgroup /app
 USER appuser
 

@@ -1,5 +1,10 @@
 # shell 脚本必须保持 LF —— CRLF 会让 Linux 上的 sh 报 `bad interpreter`
+# 🔴 同时强制记录执行位。实测踩过：Windows 上 git 默认不保存 +x，
+#    导致 Linux runner 上 `exec: "./entrypoint.sh": permission denied`。
 *.sh text eol=lf
+
+# 直接被 exec 的入口脚本，显式标记可执行
+/entrypoint.sh text eol=lf mode=100755
 
 # Docker 相关同理
 Dockerfile text eol=lf
