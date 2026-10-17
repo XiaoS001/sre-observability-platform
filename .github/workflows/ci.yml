@@ -10,8 +10,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  IMAGE_NAME: ${{ github.repository }}
+
 
 jobs:
   test:
@@ -80,14 +79,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # 🔴 必须显式转小写：Docker tag 不允许大写，而 github.repository
+      #    带用户名（如 XiaoS001/xxx）。GitHub Actions 没有内置 lower()，
+      #    所以在这里用 shell 生成一份小写变量写到 GITHUB_ENV。
+      #    首次 CI 的 docker-build job 就是因为这个挂的。
+      - name: 生成小写镜像标签
+        run: echo "IMAGE_LC=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
       - name: 构建镜像（不运行）
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ env.IMAGE_NAME }}:latest
-            ghcr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ghcr.io/${{ env.IMAGE_LC }}:latest
+            ghcr.io/${{ env.IMAGE_LC }}:${{ github.sha }}
           build-args: |
             BUILDKIT_INLINE_CACHE=1
           cache-from: type=gha
@@ -95,6 +101,6 @@ jobs:
 
       - name: 镜像构建信息
         run: |
-          echo "✅ 镜像已推送到 ghcr.io/${{ env.IMAGE_NAME }}"
+          echo "✅ 镜像已推送到 ghcr.io/${{ env.IMAGE_LC }}"
           echo "   latest 与 ${{ github.sha }} 两个 tag"
           echo "   🔖 注意：本 job 只构建不运行容器运行态验证"
