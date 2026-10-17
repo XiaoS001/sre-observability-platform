@@ -1,7 +1,7 @@
 # SRE 可观测性监控平台
 
 > 面向中小团队的一体化监控平台：**多目标巡检 → 定时调度 → 告警 → 通知 → 状态页 → 报表**，
-> 对接 Prometheus / Grafana / Loki / Jaeger 四件套。AI 根因分析为规划中能力（见第九节）。
+> 对接 Prometheus / Grafana / Loki / Jaeger 四件套，并提供**带证据引用的 AI 根因分析**（见第十三节）。
 > Docker 化 + GitHub Actions CI，一条命令起全套。
 
 ---
@@ -18,6 +18,22 @@
 > 本 README **不声称**「已上线」「生产环境可用」。
 > 「CI 已通过」仅指**镜像构建与pytest 真实跑绿**（有 Actions 链接），
 > **不代表容器运行态已验证** —— 说「能跑」时请按下方清单的边界理解。
+
+---
+
+## 阶段进度
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| 0 | 审查基线核验（19 个只读文件 sha256） | ✅ 全部一致 |
+| 1 | 盘点与脚手架 | ✅ 通过 |
+| 2 | 数据模型 + 巡检与调度 | ✅ 77 passed |
+| 3 | 告警 + 状态页 + 报表 + 用户体系 | ✅ 154 passed |
+| 4 | Docker + CI | ✅ CI 两个 job 均通过 |
+| 5 | 文档 + 演示材料 + 商业模式 | ✅ 完成 |
+| 6 | 接入 AI 根因分析（LangGraph） | ✅ **253 passed / 1 skipped** |
+
+---
 
 ---
 
@@ -40,7 +56,7 @@
                     ↓
               状态页（对外）+ 报表（对内）
                     ↓
-         （规划中）AI 根因分析（为什么）
+         AI 根因分析（多智能体取证 + 引用校验）
 ```
 
 ---
@@ -67,7 +83,7 @@
 │         │ reports（CSV 导出） │                              │
 │         └─────────────────────┘                              │
 │                    │                                          │
-│                    └──▶（规划中）aiops/：AI 根因分析，未接入    │
+│                    └──▶ aiops/：LangGraph 5 工具取证 + 引用校验  │
 ┌───────────────────────────────────▼─────────────┴───────────────┐
 │                       数据层                                     │
 │  SQLite（可换 PostgreSQL）· 7 张表 · 演示数据可一键生成           │
@@ -314,7 +330,7 @@ curl http://127.0.0.1:5000/metrics | grep rmb03_probe_success
 |---|---|
 | **运维 / SRE** | 多目标巡检 · 四分类失败诊断 · Prometheus/Grafana/Loki/Jaeger 四件套 · Docker 多层构建 · GitHub Actions CI · 部署约束设计（单 worker 的取舍） |
 | **技术支持** | 状态页 · 报表导出 · 文档齐全（API/数据库/告警/商业模式四份）· 降级设计（通知失败不炸主流程） |
-| **AI 应用 / AI 测试** | **变异测试驱动的边界测试**（9 个变异抓到 8 个，漏的那个已修）· 冷却期毫秒级双向夹逼 · 全流程 mock（167 条 pytest 零外部调用）· AI 根因分析见第九节「规划中」 |
+| **AI 应用 / AI 测试** | **LangGraph 多智能体根因分析**（Supervisor + 4 Agent · 6 工具取证 · 引用校验拦编造）· **五层降级**（无 key/超时/HTTP 错/返回体异常/编排崩溃 均不 500）· **变异测试驱动**（自跑 5 个变异，全部被抓）· 冷却期毫秒级双向夹逼 |
 
 ### 面试可讲的技术决策
 
@@ -347,6 +363,8 @@ curl http://127.0.0.1:5000/metrics | grep rmb03_probe_success
 | 演示数据幂等 | `seed_demo.py` 连跑两次 | 记录数一致，不翻倍 |
 | 6 个 YAML 语法 | `yaml.safe_load` | 全部 OK |
 | 19 个只读文件 | sha256 逐个比对 | 全部一致（XM01/XM05 零改动） |
+| **AI 根因分析** | `verify_degradation.py` + 28 条测试 | **已实现**。五层降级全部实测有可读输出（见第十二节） |
+| 🔴 **模型调用** | 测试中**全部 mock** | **零真实 API 调用**。1 条 `@pytest.mark.live` 默认 skip，需显式 `-m live` 才跑 |
 
 ### ❌ 未验证（需 CI 或有 Docker 环境的人验）
 
@@ -355,7 +373,6 @@ curl http://127.0.0.1:5000/metrics | grep rmb03_probe_success
 | 🔴 **容器实际运行** | 本机无 Docker，WSL 被安全策略禁用 | 有 Docker 的机器 |
 | 🔴 **compose 四服务联通** | 同上 | 有 Docker 的机器 |
 | 🔴 **GHCR 镜像拉取** | 本机无 Docker；当前 PAT 缺 `read:packages` scope，无法用 API 核验 registry 内容 | 有 Docker 的机器执行 `docker pull ghcr.io/xiaos001/sre-observability-platform:latest` |
-| 🔴 **AI 根因分析** | **未实现** —— `aiops/` 仅建了 `__init__.py` 占位，无代码、无依赖、无测试 | 待阶段 6 决定是否接入 |
 | **Grafana 看板渲染** | 需要容器 | 浏览器 |
 
 ### CI 状态
@@ -384,8 +401,6 @@ curl http://127.0.0.1:5000/metrics | grep rmb03_probe_success
 也**未在本机验证过看板渲染**（需要容器环境）。
 状态页的可用率图表是本机实测的，不依赖 Grafana。
 
----
-
 ## 十、演示材料
 
 | 截图 | 内容 |
@@ -393,6 +408,7 @@ curl http://127.0.0.1:5000/metrics | grep rmb03_probe_success
 | `docs/screenshots/01-状态页-每日可用率.png` | 90 天可用率条形图，绿/红分色 |
 | `docs/screenshots/02-状态页-当前状态与告警.png` | 7 个目标当前状态 + 近期告警列表 |
 | `docs/screenshots/03-越权演示-只读账号403.png` | 401/403 语义与三角色权限矩阵 |
+| `docs/screenshots/04-AI根因分析-降级路径.png` | `/admin/alerts` 点击「分析」后的根因 + 引用 + 降级标记 |
 
 > ⚠️ 截图中所有数据均由 `seed_demo.py` **程序生成的模拟数据**，
 > 目标 URL 全部使用 RFC 2606 保留的示例域名（`*.example.com`），
@@ -422,11 +438,119 @@ curl http://127.0.0.1:5000/metrics | grep rmb03_probe_success
 | `XM01\metrics.py` | 自定义 Collector（scrape 时从库派生） | 表名 + 指标前缀 |
 | `XM01\logging_setup.py` | 手写 LokiHandler（守护线程 + 批量缓冲 + 失败静默降级） | 环境变量前缀 |
 | `XM01\tracing_setup.py` | OTel 埋点 + 两层容错 | 标识符名 |
-| `XM05\aiops\` | LangGraph Supervisor + 5 工具白名单 | 🔴 **未接入** —— 仅建了 `aiops/__init__.py` 占位 |
+| `XM05\aiops\` | LangGraph 编排（387 行） | `aiops/graph.py` —— 改 key 来源（`os.environ` → `config`）、补 `AI_ENABLED` 分支、取证锚定 `check_id`、新增 `query_alert_context` 计划 |
+| | 5 个取证工具（193 行） | `aiops/tools.py` —— **函数体全部重写**（SQL 表名 `check_result`→`check_record`、`monitor_target`→`target`），新增第 6 个工具 `query_alert_context`，加了 `db_error` 兜底与 `_text()` 空值防火墙 |
+| | 只读打开数据的方式 | `aiops/db_access.py` —— 库路径改 `data/rmb03.db`，异常统一转 `DbUnavailable` |
+| | 12 条运维知识（BM25） | `knowledge/` 原样复制，零改动 |
+| | BM25 检索器 | `knowledge/retriever.py` 原样复制，零改动 |
 
 > **数据不复制**：本项目用自己的 `data/rmb03.db`，
 > 绝不复制也绝不写入 XM01 的 `app.db`。
 
 ---
+## 十三、AI 根因分析（阶段 6）
+
+> 移植自 XM05 的 `aiops/`（复制不引用，原项目零改动），按 RMB03 的表结构改写。
+
+### 12.1 编排结构
+
+```
+告警触发（Alert 已落库）
+      ↓
+POST /api/alerts/<id>/analyze
+      ↓
+LangGraph：supervisor → planner → tool_agent → critic → answerer
+      ↓
+6 个白名单工具取证（全部只读）
+      ↓
+引用校验：[N] 必须能对上证据 id，对不上触发重答（有上限）
+      ↓
+结果落库 analysis 表 + 返回
+```
+
+### 12.2 六个取证工具
+
+| 工具 | 查什么 |
+|---|---|
+| `query_check_records` | `check_record` JOIN `target`，保留失败四分类 |
+| `query_metrics` | 从库聚合可用率 / P95 / 四分类计数（**不查 Prometheus**，与平台自身同口径） |
+| `query_logs` | 按四分类过滤 `check_record.error_msg` |
+| `query_traces` | 🔴 **如实返回 `has_trace_data: false`** —— 链路没入库，不假装有 |
+| `search_knowledge` | 12 条运维知识（jieba + BM25） |
+| `query_alert_context` | **RMB03 新增** —— 告警的规则类型与阈值（XM05 没有 alert 表） |
+
+**三条硬约束由代码强制**：
+
+1. **只读** —— 全部查询走 `sqlite3.connect("file:...?mode=ro")`，
+   SQLite 引擎层拒绝写。测试里用 DELETE/INSERT/UPDATE 实测验证过会被拒。
+2. **不抛异常** —— 参数非法 / 库打不开 / 表结构异常，一律转成
+   `{"ok": false, "code": "bad_param"|"db_error"}`，**任何异常冒到 Flask 就是 500**。
+3. **不编数字** —— 工具只直查库；链路数据没有就说没有。
+
+### 12.3 引用校验
+
+答案里的数字引用 `[N]` 必须能在证据列表里找到对应记录 id，
+对不上则判定为编造 → 触发重答。
+
+- 双上限：`MAX_ROUNDS=12`（轮数）/ `MAX_ATTEMPTS=3`（尝试次数），防死循环
+- ⚠️ **`[KB-001]` 这类知识库引用刻意不校验** —— 它是规则路径模板生成的，
+  不是模型编的；且 KB- id 与记录 id 形态不同，混进同一套 valid_ids 反制造歧义。
+  这个设计有测试锁住，防止以后被"好心"改掉。
+
+### 12.4 五层降级（**没有 key 也能用**）
+
+| 场景 | `degraded` | `answer` | 降级原因 |
+|---|---|---|---|
+| 无 `DEEPSEEK_API_KEY` | ✅ | 规则路径，241 字 | `未配置 DEEPSEEK_API_KEY，退回规则路径` |
+| 模型超时 | ✅ | 同上 | `...失败: Read timed out` |
+| HTTP 错误 | ✅ | 同上 | `...失败: HTTP 429` |
+| 返回体异常 |✅ | 同上 | `...失败: 模型返回内容为空` |
+| `RMB03_AI_ENABLED=false` | ✅ | 同上 | `AI_ENABLED=false，跳过模型调用` |
+| 编排整体崩溃 | ✅ | 异常信息 | 落库 `status=failed`，**不 500** |
+
+**降级答案长这样**（不是「分析失败」了事）：
+
+```
+根因分析：目标「demo-支付回调」（https://pay.example.com/callback）出现请求异常。
+依据知识库条目 [KB-004]，可能原因：
+  - 服务端代码抛异常未捕获
+  - 上游依赖服务不可用（502/504）
+  - 服务过载导致拒绝服务（503）
+依据巡检记录 [2946]: 失败分类为 exception，耗时 15.0ms。
+处置建议：
+  - 查服务端错误日志定位异常堆栈
+  - 检查上游依赖服务健康状态
+  - 检查服务负载与限流阈值
+```
+
+> 独立复现：`venv\\Scripts\\python.exe verify_degradation.py`
+
+### 12.5 🔴 关于「模型调用」的诚实说明
+
+| 项 | 状态 |
+|---|---|
+| **测试中的模型调用** | **全部 mock** —— 253 条 pytest **零真实 API 消耗、零费用、不依赖网络** |
+| live 用例 | **1 条** `tests/test_live_ai.py`，`@pytest.mark.live`，**默认 skip** |
+| 为什么还要留 live | 前面全 mock 就没验证过「真接上模型能不能跑通」 |
+| 怎么跑 | `set DEEPSEEK_API_KEY=sk-xxx` 后 `pytest tests/test_live_ai.py -m live` |
+| live 里断言什么 | 不管成功降级，都断言「不抛异常 + 无 None + **引用全部有效**」 |
+
+> ⚠️ **没跑过 live 就不声称「真机验证通过」**。本项目对模型的验证
+> 止于「降级路径完全可用」+「live 用例已就绪」，**不声称模型主路径实测通过**。
+
+### 12.6 两个被「用眼睛看」抓出来的 bug
+
+这类 bug 有一个共同点：**测试全绿，但输出是错的**。
+
+| bug | 现象 | 根因 | 修法 |
+|---|---|---|---|
+| `耗时 Nonems` | 答案里出现 Python 字面量 `None` | `dict.get(k, default)` 的 default **只在键不存在时生效**，键存在值为 None 时返回 None |抽 `_text()` 助手，所有插值点统一走它 |
+| `可能原因：` 悬空 | 标题写了但下面是空的 | 只取了 KB 的 `actions`，**漏了 `causes`** —— 知识库里明明有 3 条原因 | 一并取 `causes`；标题必须跟着内容走 |
+
+> 这两个都是**人工读输出**发现的，不是测试报的。
+> 补的测试：`test_answer_never_contains_none_*`、`test_possible_causes_section_is_populated`。
+
+---
+
 
 *（本项目为个人作品。演示数据为程序生成的模拟数据；容器相关能力由 CI 验证，本机无 Docker 环境。）*

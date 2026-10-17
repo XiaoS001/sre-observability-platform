@@ -257,6 +257,13 @@ def _register_routes(app):
     @login_required('view_records')
     def list_alerts():
         rows = Alert.query.order_by(Alert.triggered_at.desc(), Alert.id.desc()).limit(100).all()
+        from models import Analysis
+
+        counts = dict(
+            db.session.query(
+                Analysis.alert_id, db.func.count(Analysis.id)
+            ).group_by(Analysis.alert_id).all()
+        )
         return jsonify([
             {
                 'id': a.id,
@@ -267,9 +274,97 @@ def _register_routes(app):
                 'observed_value': a.observed_value,
                 'threshold': a.threshold,
                 'triggered_at': a.triggered_at.strftime('%Y-%m-%d %H:%M:%S'),
+                'analysis_count': counts.get(a.id, 0),
             }
             for a in rows
         ])
+
+    # --- AI 根因分析（阶段 6）------------------------------------------------
+    # 🔴 analyze_incident 权限：admin ✅ operator ✅ viewer ❌403
+
+    @app.post('/api/alerts/<int:alert_id>/analyze')
+    @login_required('analyze_incident')
+    def analyze_alert(alert_id):
+        """对一条告警跑 AI 根因分析并落库。
+
+        🔴 任何情况不返 500 —— service 层已兜底，这里只处理 404。
+        无 key / 模型超时 / 引用校验失败都会得到 200 + status 字段说明结果。
+        """
+
+        alert = db.session.get(Alert, alert_id)
+        if alert is None:
+            return jsonify({'error': '告警不存在'}), 404
+
+        from aiops_service import analysis_to_dict, run_analysis
+
+        analysis = run_analysis(alert)
+        payload = analysis_to_dict(analysis)
+        # 分析没成功时也返 200：调用方要看 status/citations 判断，
+        # 而不是靠状态码区分「分析失败」和「请求失败」。
+        return jsonify(payload), 200
+
+    @app.get('/api/alerts/<int:alert_id>/analysis')
+    @login_required('analyze_incident')
+    def get_alert_analysis(alert_id):
+        """返回该告警最近一次分析结果（没有则 404）。"""
+
+        from models import Analysis
+
+        if db.session.get(Alert, alert_id) is None:
+            return jsonify({'error': '告警不存在'}), 404
+
+        analysis = (
+            Analysis.query
+            .filter_by(alert_id=alert_id)
+            .order_by(Analysis.created_at.desc(), Analysis.id.desc())
+            .first()
+        )
+        if analysis is None:
+            return jsonify({'error': '该告警还没有分析记录'}), 404
+
+        from aiops_service import analysis_to_dict
+
+        return jsonify(analysis_to_dict(analysis))
+
+    @app.get('/admin/alerts')
+    @login_required('view_records')
+    def admin_alerts_page():
+        """告警管理页（需登录）。
+
+        🔴 本页与免登录的 /status 是两回事 —— 它展示规则触发详情与 AI 分析，
+        属于内部运维视图，不该给外部访客看。
+        """
+
+        from flask import render_template
+        from auth import current_user, has_permission
+        from models import Analysis
+
+        user = current_user()
+        rows = Alert.query.order_by(Alert.triggered_at.desc(), Alert.id.desc()).limit(50).all()
+        counts = dict(
+            db.session.query(
+                Analysis.alert_id, db.func.count(Analysis.id)
+            ).group_by(Analysis.alert_id).all()
+        )
+        alerts = [
+            {
+                'id': a.id,
+                'message': a.message,
+                'reason': a.reason,
+                'triggered_at': a.triggered_at.strftime('%Y-%m-%d %H:%M:%S'),
+                'analysis_count': counts.get(a.id, 0),
+            }
+            for a in rows
+        ]
+        return render_template(
+            'admin_alerts.html',
+            alerts=alerts,
+            username=user.username,
+            role=user.role.name,
+            # 🔴 前端是否显示可用的「分析」按钮 —— 真正的权限判定在后端，
+            #    这里只是让按钮显示成禁用态并给出提示（避免用户点了才知��）。
+            can_analyze=has_permission(user, 'analyze_incident'),
+        )
 
 
 def _target_json(target):

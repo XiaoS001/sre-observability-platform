@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>告警管理 · RMB03</title>
+    <style>
+        :root { --ok:#16a34a; --warn:#d97706; --bad:#dc2626; --border:#e5e7eb; --muted:#6b7280; }
+        * { box-sizing: border-box; }
+        body { font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+               margin:0; background:#f9fafb; color:#111827; }
+        .wrap { max-width:1180px; margin:0 auto; padding:28px 20px; }
+        /* 表格在窄屏会横向溢出，这里允许容器自身滚动而不是撑破页面 */
+        .card { overflow-x:auto; }
+        header { display:flex; align-items:baseline; justify-content:space-between;
+                 flex-wrap:wrap; gap:12px; margin-bottom:20px; }
+        h1 { font-size:22px; margin:0; }
+        .sub { color:var(--muted); font-size:14px; }
+        .card { background:#fff; border:1px solid var(--border);
+                border-radius:10px; padding:18px 20px; margin-bottom:16px; }
+        table { width:100%; border-collapse:collapse; font-size:14px; }
+        th,td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--border);
+                vertical-align:top; }
+        th { color:var(--muted); font-weight:500; white-space:nowrap; }
+        .mono { font-family:ui-monospace,Consolas,monospace; font-size:13px; }
+        .btn { border:none; border-radius:6px; padding:6px 14px; font-size:13px;
+               cursor:pointer; background:#2563eb; color:#fff; font-weight:500; }
+        .btn:disabled { background:#9ca3af; cursor:not-allowed; }
+        .btn-viewer { background:#dc2626; cursor:not-allowed; opacity:.6; }
+        .tag { display:inline-block; padding:2px 9px; border-radius:12px;
+               font-size:12px; font-weight:600; }
+        .t-ok{background:#dcfce7;color:#166534} .t-degraded{background:#fef3c7;color:#92400e}
+        .t-failed{background:#fee2e2;color:#991b1b} .t-none{background:#f3f4f6;color:#4b5563}
+        .c-ok{color:var(--ok)} .c-connect{color:var(--warn)}
+        .c-exception{color:var(--bad)} .c-bad_status{color:var(--bad)}
+        .result { margin-top:12px; padding:14px; background:#f9fafb;
+                  border-radius:8px; border-left:3px solid var(--border); }
+        .result.ok { border-left-color:var(--ok); }
+        .result.degraded { border-left-color:var(--warn); }
+        .result.failed { border-left-color:var(--bad); }
+        .answer { white-space:pre-wrap; font-size:14px; line-height:1.75; margin:8px 0; }
+        .meta { font-size:13px; color:var(--muted); }
+        .empty { color:var(--muted); font-size:14px; padding:8px 0; }
+        .hint { background:#eff6ff; border-left:3px solid #2563eb; padding:12px 14px;
+                border-radius:6px; font-size:13px; color:#1e40af; margin-bottom:16px; }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <header>
+        <h1>告警管理 · AI 根因分析</h1>
+        <span class="sub">当前身份：<strong>{{ username }}</strong>（{{ role }}）</span>
+    </header>
+
+    <div class="hint">
+        🔴 AI 根因分析会调用大模型并消耗额度，因此
+        <strong>只读（viewer）角色不可发起</strong>，点击会返回 403。
+        未配置 <code>DEEPSEEK_API_KEY</code> 时自动走规则路径，不会失败。
+    </div>
+
+    <div class="card">
+        {% if alerts %}
+        <table>
+            <thead>
+            <tr>
+                <th style="width:60px">ID</th>
+                <th>告警内容</th>
+                <th style="width:90px">分类</th>
+                <th style="width:150px">触发时间</th>
+                <th style="width:80px">已分析</th>
+                <th style="width:110px">操作</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for a in alerts %}
+            <tr>
+                <td class="mono">{{ a.id }}</td>
+                <td>{{ a.message }}</td>
+                <td class="mono c-{{ a.reason }}">{{ a.reason or '-' }}</td>
+                <td class="mono">{{ a.triggered_at }}</td>
+                <td class="mono">{{ a.analysis_count }}</td>
+                <td>
+                    {% if can_analyze %}
+                    <button class="btn" data-alert-id="{{ a.id }}" onclick="runAnalysis({{ a.id }}, this)">
+                        分析
+                    </button>
+                    {% else %}
+                    <button class="btn btn-viewer" disabled title="只读角色无此权限">分析</button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty">暂无告警。先在 /api/rules 配置规则，等待巡检触发。</div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+async function runAnalysis(alertId, btn) {
+    btn.disabled = true;
+    btn.textContent = '分析中…';
+    // 在表格行下方插入结果容器
+    const row = btn.closest('tr');
+    const box = document.createElement('div');
+    box.className = 'result';
+    box.innerHTML = '<div class="meta">正在取证与分析，请稍候…（无 key 时走规则路径，通常 1~2 秒）</div>';
+    row.after(box);
+
+    try {
+        const resp = await fetch(`/api/alerts/${alertId}/analyze`, {method: 'POST'});
+        const data = await resp.json();
+
+        if (resp.status === 403) {
+            box.className = 'result failed';
+            box.innerHTML = `<div class="tag t-failed">403 Forbidden</div>
+                <div class="answer">无权访问（required_permission: analyze_incident）</div>`;
+        } else if (!resp.ok) {
+            box.className = 'result failed';
+            box.innerHTML = `<div class="tag t-failed">HTTP ${resp.status}</div>
+                <div class="answer">${escapeHtml(data.error || '请求失败')}</div>`;
+        } else {
+            renderResult(box, data);
+        }
+    } catch (err) {
+        box.className = 'result failed';
+        box.innerHTML = `<div class="tag t-failed">请求异常</div>
+            <div class="answer">${escapeHtml(String(err))}</div>`;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '分析';
+    }
+}
+
+function renderResult(box, d) {
+    const cls = d.status === 'ok' ? 'ok' : (d.status === 'degraded' ? 'degraded' : 'failed');
+    const tagCls = d.status === 'ok' ? 't-ok' : (d.status === 'degraded' ? 't-degraded' : 't-failed');
+    const reasons = (d.degradation_reasons || []).map(escapeHtml).join('；');
+    const cites = (d.citations || []).length
+        ? d.citations.map(c => `[${escapeHtml(String(c))}]`).join(' ')
+        : '（无）';
+    const invalid = (d.invalid_citations || []).length
+        ? `<div class="meta" style="color:var(--bad)">⚠️ 检出无效引用：${
+            d.invalid_citations.map(c => escapeHtml(String(c))).join(', ')}（已触发重答）</div>`
+        : '';
+
+    box.className = 'result ' + cls;
+    box.innerHTML = `
+        <div><span class="tag ${tagCls}">${escapeHtml(d.status)}</span>
+            ${d.degraded ? '<span class="tag t-degraded">已降级</span>' : ''}
+            <span class="meta"> · 证据 ${d.evidence_count} 条 · 用时 ${d.rounds} 轮</span></div>
+        <div class="answer">${escapeHtml(d.answer || '（无输出）')}</div>
+        <div class="meta">引用：${cites}</div>
+        ${invalid}
+        ${reasons ? `<div class="meta">降级原因：${reasons}</div>` : ''}`;
+}
+
+function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+}
+</script>
+</body>
+</html>

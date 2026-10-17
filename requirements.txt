@@ -38,3 +38,13 @@ tzlocal==5.4.4
 urllib3==2.8.0
 Werkzeug==3.1.8
 wrapt==2.4.1
+# --- AI 根因分析（阶段 6）---
+# 全部钉版本：langchain 生态升级频繁，不钉会出现「昨天能跑今天不能」
+jieba==0.42.1
+langchain-core==1.6.12
+langchain-deepseek==1.1.1
+langchain-openai==1.7.2
+langgraph==1.2.16
+# rank_bm25 的传递依赖（BM25 打分基于数组运算，不装跑不起来）
+numpy==2.5.4
+rank-bm25==0.2.2

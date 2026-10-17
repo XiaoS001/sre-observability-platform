@@ -116,15 +116,22 @@ PERMISSIONS = {
     ROLE_ADMIN: {
         'view_status', 'view_records', 'view_reports',
         'view_rules', 'manage_rules', 'manage_targets', 'manage_users',
+        'analyze_incident',
     },
     ROLE_OPERATOR: {
         'view_status', 'view_records', 'view_reports',
         'view_rules', 'manage_rules', 'manage_targets',
+        # 运维可以发起根因分析 —— 分析结果是排查线索，不是配置变更。
+        # 与 manage_rules 分开是因为「能看规则」不等于「能改规则」，
+        # 同理「能分析」不该隐含「能改配置」。
+        'analyze_incident',
     },
     ROLE_VIEWER: {
         'view_status', 'view_records', 'view_reports',
         # 🔴 只读角色刻意不含 view_rules —— 任务单要求
         # 「只读账号看不到告警规则详情」，由test_auth 的越权用例锁死。
+        # 🔴 也不含 analyze_incident —— 根因分析会消耗模型额度并触发外部调用，
+        #    只读账号不该能发起（tests/test_aiops_api.py 锁死这条）。
     },
 }
 

@@ -170,6 +170,12 @@ class Alert(db.Model):
         cascade='all, delete-orphan',
         lazy='select',
     )
+    analyses = db.relationship(
+        'Analysis',
+        back_populates='alert',
+        cascade='all, delete-orphan',
+        lazy='select',
+    )
 
 
 class Notification(db.Model):
@@ -196,6 +202,53 @@ class Notification(db.Model):
     sent_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
     alert = db.relationship('Alert', back_populates='notifications')
+
+
+class Analysis(db.Model):
+    """AI 根因分析结果（阶段 6）。
+
+    🔴 为什么要落库：分析结果必须可回溯。否则刷新页面就没了，
+    演示不成立、也无法事后复盘「当时给出的根因是什么」。
+
+    字段对应 aiops.graph.analyze_incident() 的返回：
+        status              ok / degraded / failed
+        answer              根因分析 + 处置建议正文
+        citations           答案里引用到的证据 id（应都能对上真实记录）
+        invalid_citations   校验不通过、被判为编造的引用
+        degraded            是否走了降级路径（无 key / 模型失败 / 超时）
+        degradation_reasons 降级原因清单
+        tool_calls          本次调用了哪些工具、各自返回什么
+    """
+
+    __tablename__ = 'analysis'
+
+    STATUS_OK = 'ok'
+    STATUS_DEGRADED = 'degraded'
+    STATUS_FAILED = 'failed'
+    ALL_STATUSES = (STATUS_OK, STATUS_DEGRADED, STATUS_FAILED)
+
+    id = db.Column(db.Integer, primary_key=True)
+    alert_id = db.Column(
+        db.Integer,
+        db.ForeignKey('alert.id'),
+        nullable=False,
+        index=True,
+    )
+    status = db.Column(db.String(20), nullable=False, default=STATUS_OK)
+    answer = db.Column(db.Text, nullable=False, default='')
+    # 用 Text 存 JSON 字符串而不是 JSON 列：
+    # SQLite 的 JSON 依赖 SQLAlchemy 的序列化器，跨库行为不一致；
+    # 显式 json.dumps/loads 更可控，也方便直接在 sqlite3 CLI 里看。
+    citations_json = db.Column(db.Text, nullable=True)
+    invalid_citations_json = db.Column(db.Text, nullable=True)
+    degraded = db.Column(db.Boolean, default=False, nullable=False)
+    degradation_reasons_json = db.Column(db.Text, nullable=True)
+    tool_calls_json = db.Column(db.Text, nullable=True)
+    evidence_count = db.Column(db.Integer, default=0, nullable=False)
+    rounds = db.Column(db.Integer, default=0, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, index=True)
+
+    alert = db.relationship('Alert', back_populates='analyses')
 
 
 class Role(db.Model):
