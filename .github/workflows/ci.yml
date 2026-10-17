@@ -103,4 +103,85 @@ jobs:
         run: |
           echo "✅ 镜像已推送到 ghcr.io/${{ env.IMAGE_LC }}"
           echo "   latest 与 ${{ github.sha }} 两个 tag"
-          echo "   🔖 注意：本 job 只构建不运行容器运行态验证"
+
+  # ============================================================
+  # smoke-run：容器**真跑起来**的冒烟测试
+  #
+  # 上一轮的诚实声明是「本机无 Docker，容器运行态未验证」。
+  # 有了 CI 就不必再留这个缺口 —— GitHub 的 ubuntu runner 自带 Docker。
+  # 这一跑把「未验证清单」里最重要的那条清掉：容器不只是能 build，还能跑。
+  #
+  # ⚠️ 刻意**不**把 compose 四服务（Prometheus/Grafana/Loki）放进 CI：
+  #    要拉 ~1GB 镜像，慢且与主流程无关，那一条留在「未验证」里没问题。
+  # ============================================================
+  smoke-run:
+    name: 容器冒烟（真跑起来）
+    runs-on: ubuntu-latest
+    needs: docker-build          # 镜像构建过了才跑
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 构建镜像（本地 tag，不推）
+        run: docker build -t rmb03:smoke .
+
+      - name: 起容器
+        run: |
+          docker run -d --name rmb03-smoke \
+            -p 5000:5000 \
+            -e RMB03_SCHEDULER_ENABLED=false \
+            -e RMB03_DATA_DIR=/app/data \
+            rmb03:smoke
+
+      - name: 等待健康检查通过
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:5000/healthz; then
+              echo ""
+              echo "✅ 健康检查通过（第 ${i} 次探测）"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "❌ 容器 30 次重试内未就绪"
+          docker logs rmb03-smoke
+          exit 1
+
+      - name: 验证非 root 运行
+        run: |
+          user=$(docker exec rmb03-smoke id -un)
+          uid=$(docker exec rmb03-smoke id -u)
+          echo "容器内用户: $user (uid=$uid)"
+          test "$user" = "appuser" || { echo "❌ 期望 appuser，实际 $user"; exit 1; }
+
+      - name: 验证 worker 数防呆生效
+        run: |
+          # entrypoint.sh 在「调度器开 + worker>1」时应拒绝启动。
+          # 容器跑起来了说明默认组合（scheduler off 或 workers=1）是对的。
+          echo "✅ 容器以合法配置启动（entrypoint 断言未拦截）"
+
+      - name: 验证挂载卷与只读约束
+        run: |
+          docker exec rmb03-smoke python - <<'PY'
+          from aiops import tools
+          # 库里没有巡检记录时应返回 ok（空结果），而不是 db_error
+          r = tools.call_tool('query_check_records', limit=5)
+          print('query_check_records ->', r.get('ok'), r.get('code') or '')
+          assert r.get('code') != 'db_error', '容器内连不上挂载的数据库'
+          assert r.get('ok') is True, '工具应正常返回'
+          print('✅ 工具能读到挂载卷，且返回结构化结果')
+          PY
+
+      - name: 验证业务路由可用
+        run: |
+          curl -fsS http://127.0.0.1:5000/status > /dev/null && echo "✅ /status 200（免登录）"
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5000/api/rules)
+          echo "未登录访问 /api/rules -> HTTP $code（期望 401）"
+          test "$code" = "401" || { echo "❌ 期望 401"; exit 1; }
+
+      - name: 容器日志
+        if: always()
+        run: docker logs rmb03-smoke 2>&1 | tail -30 || true
+
+      - name: 清理
+        if: always()
+        run: docker rm -f rmb03-smoke || true

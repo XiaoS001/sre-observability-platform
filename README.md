@@ -364,13 +364,13 @@ curl http://127.0.0.1:5000/metrics | grep rmb03_probe_success
 | 6 个 YAML 语法 | `yaml.safe_load` | 全部 OK |
 | 19 个只读文件 | sha256 逐个比对 | 全部一致（XM01/XM05 零改动） |
 | **AI 根因分析** | `verify_degradation.py` + 28 条测试 | **已实现**。五层降级全部实测有可读输出（见第十二节） |
-| 🔴 **模型调用** | 测试中**全部 mock** | **零真实 API 调用**。1 条 `@pytest.mark.live` 默认 skip，需显式 `-m live` 才跑 |
+| **模型主路径** | `pytest tests -m live`（AMD端点 / DeepSeek-V4-Flash） | ✅ **2026-10-17 实测通过**，引用校验全过 · 详见 `docs/AI实测记录.md` |
 
 ### ❌ 未验证（需 CI 或有 Docker 环境的人验）
 
 | 项 | 原因 | 在哪验 |
 |---|---|---|
-| 🔴 **容器实际运行** | 本机无 Docker，WSL 被安全策略禁用 | 有 Docker 的机器 |
+| **容器实际运行** | CI 新增 `smoke-run` job，真跑容器验 `/healthz` + 非 root + 401 语义 | 见 Actions `smoke-run` |
 | 🔴 **compose 四服务联通** | 同上 | 有 Docker 的机器 |
 | 🔴 **GHCR 镜像拉取** | 本机无 Docker；当前 PAT 缺 `read:packages` scope，无法用 API 核验 registry 内容 | 有 Docker 的机器执行 `docker pull ghcr.io/xiaos001/sre-observability-platform:latest` |
 | **Grafana 看板渲染** | 需要容器 | 浏览器 |
@@ -543,13 +543,13 @@ LangGraph：supervisor → planner → tool_agent → critic → answerer
 | 项 | 状态 |
 |---|---|
 | **测试中的模型调用** | **全部 mock** —— 253 条 pytest **零真实 API 消耗、零费用、不依赖网络** |
-| live 用例 | **1 条** `tests/test_live_ai.py`，`@pytest.mark.live`，**默认 skip** |
+| live 用例 | **1 条** `tests/test_live_ai.py`，`@pytest.mark.live`，默认 skip · ✅ **已实测通过（2026-10-17）** |
 | 为什么还要留 live | 前面全 mock 就没验证过「真接上模型能不能跑通」 |
-| 怎么跑 | `set DEEPSEEK_API_KEY=sk-xxx` 后 `pytest tests/test_live_ai.py -m live` |
+| 怎么跑 | 默认端点：`set DEEPSEEK_API_KEY=sk-xxx` 后 `pytest tests -m live` · 用 AMD 端点的 key 需**同时**改 `RMB03_AI_BASE_URL` 与 `RMB03_AI_MODEL`（见 `docs/AI实测记录.md`） |
 | live 里断言什么 | 不管成功降级，都断言「不抛异常 + 无 None + **引用全部有效**」 |
 
 > ⚠️ **没跑过 live 就不声称「真机验证通过」**。本项目对模型的验证
-> 止于「降级路径完全可用」+「live 用例已就绪」，**不声称模型主路径实测通过**。
+> **2026-10-17 更新**：live 已实测通过（AMD 端点 / DeepSeek-V4-Flash，HTTP 200，
 
 ### 12.6 两个被「用眼睛看」抓出来的 bug
 

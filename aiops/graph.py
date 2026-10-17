@@ -231,7 +231,29 @@ def tool_agent_node(state: AgentState) -> dict[str, Any]:
                 if check_id is not None:
                     exact = tools.call_tool("query_alert_context", check_id=check_id)
                     if exact.get("ok") and exact.get("check"):
-                        result["records"].insert(0, exact["check"])
+                        # 🔴 必须归一化成与 query_check_records 完全相同的字段名。
+                        #
+                        # 实测踩过的坑：query_alert_context 返回的 check 用的是
+                        # `check_id`，而 query_check_records 的 records 用 `id`。
+                        # 两种结构混在同一个数组里，模型看到 [{...id:4355}, {...}] 这种
+                        # 参差不齐的东西，就改用「第 N 条」按序号引用 —— 于是编出
+                        # [1][2][3]。引用校验把 [3] 判成编造，live 测试因此红了。
+                        #
+                        # 教训：**给模型看的证据必须结构一致**，否则它会自己找补。
+                        pinned = dict(exact["check"])
+                        pinned["id"] = pinned.pop("check_id", None) or check_id
+                        # 补齐 query_check_records 有而这里没有的字段，
+                        # 让模型看到的形状前后一致
+                        pinned.setdefault("target_id", incident.get("target_id"))
+                        pinned.setdefault("url", incident.get("url"))
+                        pinned.setdefault("is_success", False)
+                        # 去重：同一条记录可能已经在最近 10 条里
+                        existing_ids = {
+                            rec.get("id") for rec in result["records"]
+                            if isinstance(rec, dict)
+                        }
+                        if pinned["id"] not in existing_ids:
+                            result["records"].insert(0, pinned)
                         result["count"] = len(result["records"])
                         result["pinned_check_id"] = check_id
             elif name == "query_logs":
