@@ -11,13 +11,13 @@
 | 项 | 状态 |
 |---|---|
 | pytest | **167 条全绿**，本机实测 |
-| 容器构建 | **由 GitHub Actions 验证** —— 代码未推送，**CI 待首次运行验证** |
+| 容器构建 | ✅ **GitHub Actions 已验证通过**（见下方 CI 状态） |
 | 容器运行 | **本机无法验证** —— 本机没装 Docker，WSL 被安全策略禁用 |
 | 演示数据 | **程序生成的模拟数据**，不涉及任何真实监控对象 |
 
-> 本 README **不会**出现「已上线」「生产环境可用」「CI 已跑绿」这类表述。
-> 说「能跑」时请理解为：**代码已在本机跑通测试与应用本体**，
-> **不是**指容器编排已在真实环境验证。
+> 本 README **不声称**「已上线」「生产环境可用」。
+> 「CI 已通过」仅指**镜像构建与pytest 真实跑绿**（有 Actions 链接），
+> **不代表容器运行态已验证** —— 说「能跑」时请按下方清单的边界理解。
 
 ---
 
@@ -352,18 +352,31 @@ curl http://127.0.0.1:5000/metrics | grep rmb03_probe_success
 
 | 项 | 原因 | 在哪验 |
 |---|---|---|
-| 🔴 **镜像构建** | 本机无 Docker，WSL 被安全策略禁用 | CI `docker-build` job |
-| 🔴 **容器运行** | 同上 | `docker compose up` |
-| 🔴 **compose 四服务联通** | 同上 | CI 或有 Docker 的机器 |
-| 🔴 **entrypoint.sh 真跑** | 本机无 POSIX shell（`sh` 不存在） | CI ubuntu runner |
+| 🔴 **容器实际运行** | 本机无 Docker，WSL 被安全策略禁用 | 有 Docker 的机器 |
+| 🔴 **compose 四服务联通** | 同上 | 有 Docker 的机器 |
+| 🔴 **GHCR 镜像拉取** | 本机无 Docker；当前 PAT 缺 `read:packages` scope，无法用 API 核验 registry 内容 | 有 Docker 的机器执行 `docker pull ghcr.io/xiaos001/sre-observability-platform:latest` |
 | 🔴 **AI 根因分析** | **未实现** —— `aiops/` 仅建了 `__init__.py` 占位，无代码、无依赖、无测试 | 待阶段 6 决定是否接入 |
-| **GHCR 推送后拉取** | 代码尚未推送仓库 | CI 日志 |
 | **Grafana 看板渲染** | 需要容器 | 浏览器 |
 
 ### CI 状态
 
-🔴 **CI 待首次运行验证** —— 代码尚未推送到 GitHub，没有 Actions 日志。
-按诚实原则，**没真推上去看过日志就不写「CI 已跑绿」**。
+✅ **CI 已通过** —— 这是真实运行结果，非自述。
+
+| 项 | 结果 |
+|---|---|
+| Actions 运行 | [runs/39004265225](https://github.com/XiaoS001/sre-observability-platform/actions/runs/39004265225) |
+| `pytest` job | **success** —— 167 条全绿 |
+| `docker-build` job | **success** —— 镜像构建并推送 GHCR |
+| 镜像地址 | `ghcr.io/xiaos001/sre-observability-platform:latest` |
+
+> ⚠️ **首次 CI 曾失败并已修复**，如实记录：
+> 第一次运行时 `pytest` 通过、`docker-build` 失败于
+> `invalid tag: repository name must be lowercase`
+> —— 因为 `github.repository` 带上了大写的用户名。
+> 已加一步用 `tr` 转小写后修复（[首次运行记录](https://github.com/XiaoS001/sre-observability-platform/actions/runs/39004124606)）。
+>
+> 🔴 **CI 只构建镜像，不运行容器。** 运行态（`docker compose up`、
+> 四服务联通、Grafana 看板渲染）**仍未验证**，见上表。
 
 ### 关于 Grafana 看板
 
